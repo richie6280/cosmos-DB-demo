@@ -105,9 +105,13 @@ export class AppComponent {
       query,
       parameters: [{ name: '@itemId', value: itemId }],
     };
-
     const { resources } = await container.items.query(sqlQuerySpec).fetchAll();
-    return resources || undefined;
+
+    if (resources.length > 0) {
+      return resources;
+    }
+
+    return undefined;
   }
 
   /**
