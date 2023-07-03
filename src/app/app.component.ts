@@ -23,61 +23,20 @@ export class AppComponent {
     const databaseId = 'newDatabase';
     const containerId = 'newContainer';
     const container: Container = this.client.database(databaseId).container(containerId);
-
-    await this.subscribeToChanges(databaseId, containerId).catch((error) => {
-      console.error('Error subscribing to changes:', error);
-    });
-
-    // const newItem = {
-    //   id: '2',
-    //   name: 'richie',
-    //   detail: {
-    //     age: 100,
-    //     address: 'xxx',
-    //   },
-    //   options: ['a', 'b'],
-    // };
-
-    const updateItem = {
-      // id: '4',
-      test: '123123',
-    };
-
-    // await this.upsertItem(container, updateItem);
-
-    // const result = await this.getAllItems(container);
-    // console.log('result', result);
-
-    // await this.deleteItem(container, '2');
-
-    // await this.updateItem(container, updateItem);
-    // await this.createItem(container, updateItem);
-
-    // const test = await this.getItemByCondition(container, 'test', '==', '123123');
-    // console.log('test', test);
-  }
-
-  async subscribeToChanges(databaseId: string, containerId: string) {
-    const partitionKey = '/id';
-
-    const container = this.client.database(databaseId).container(containerId);
   }
 
   cosmosClientInit() {
     this.client = new CosmosClient({ endpoint: this.endpoint, key: this.key });
   }
 
-  getContainer(databaseId: string, containerId: string): Container {
-    // const database = this.client.database(databaseId);
-    // const container = database.container(containerId);
-
-    const container: Container = this.client.database(databaseId).container(containerId);
-    return container;
-  }
-
-  async createDatabaseAndContainer() {
-    const databaseId = 'test';
-    const containerId = 'testContainer';
+  /**
+   *
+   * @param databaseId
+   * @param containerId
+   *
+   * 新建database、container、item範例
+   */
+  async createDatabaseAndContainer(databaseId: string, containerId: string) {
     const { database } = await this.client.databases.create({ id: databaseId });
     const { container } = await database.containers.create({ id: containerId });
     // const { database } = await this.client.databases.createIfNotExists({ id: databaseId });
@@ -91,15 +50,46 @@ export class AppComponent {
   }
 
   /**
+   * 檢查container是否存在
+   */
+  async checkContainerExists(databaseId: string, containerId: string): Promise<boolean> {
+    try {
+      await this.client.database(databaseId).container(containerId).read();
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async getContainer(databaseId: string, containerId: string): Promise<Container | undefined> {
+    const containerExists = await this.checkContainerExists(databaseId, containerId);
+
+    if (containerExists) {
+      // const database = this.client.database(databaseId);
+      // const container = database.container(containerId);
+
+      const container: Container = this.client.database(databaseId).container(containerId);
+      return container;
+    }
+
+    return undefined;
+  }
+
+  /**
    *
    * @param container
-   * @param itemId
    *
    * 在此container中查找全部item
    */
-  async getAllItems(container: Container): Promise<ItemDefinition[] | []> {
-    const { resources: existingItems } = await container.items.readAll().fetchAll();
-    return existingItems || [];
+  async getAllItems(container: Container): Promise<ItemDefinition[] | undefined> {
+    const containerExists = await this.checkContainerExists(container.database.id, container.id);
+
+    if (containerExists) {
+      const { resources: existingItems } = await container.items.readAll().fetchAll();
+      return existingItems;
+    }
+
+    return undefined;
   }
 
   /**
@@ -109,7 +99,7 @@ export class AppComponent {
    *
    * 在此container中以id查找item
    */
-  async getItemById(container: Container, itemId: string): Promise<ItemDefinition[] | []> {
+  async getItemById(container: Container, itemId: string): Promise<ItemDefinition[] | undefined> {
     const query = 'SELECT * FROM c WHERE c.id = @itemId';
     const sqlQuerySpec: SqlQuerySpec = {
       query,
@@ -117,7 +107,19 @@ export class AppComponent {
     };
 
     const { resources } = await container.items.query(sqlQuerySpec).fetchAll();
-    return resources || [];
+    return resources || undefined;
+  }
+
+  /**
+   *
+   * @param container
+   * @param itemId
+   *
+   * 在此container中以id查找item
+   */
+  async getItemByReadId(container: Container, itemId: string): Promise<ItemDefinition | undefined> {
+    const result = (await container.item(itemId).read()).resource;
+    return result;
   }
 
   /**
@@ -134,7 +136,7 @@ export class AppComponent {
     field: string,
     condition: string,
     value: any
-  ): Promise<ItemDefinition[] | []> {
+  ): Promise<ItemDefinition[] | undefined> {
     const query = `SELECT * FROM c WHERE c.${field} ${condition} @value`;
     const sqlQuerySpec: SqlQuerySpec = {
       query,
@@ -142,7 +144,7 @@ export class AppComponent {
     };
 
     const { resources } = await container.items.query(sqlQuerySpec).fetchAll();
-    return resources || [];
+    return resources || undefined;
   }
 
   /**
@@ -152,10 +154,15 @@ export class AppComponent {
    *
    * 確認此container中有無重複id的item
    */
-  async checkDuplicate(container: Container, itemId: string): Promise<boolean> {
+  async checkDuplicateItem(container: Container, itemId: string): Promise<boolean> {
     const resource = await this.getAllItems(container);
-    const isDuplicate = resource.some((item: any) => item.id === itemId);
-    return isDuplicate;
+
+    if (resource) {
+      const isDuplicate = resource.some((item: any) => item.id === itemId);
+      return isDuplicate;
+    }
+
+    return false;
   }
 
   /**
@@ -170,7 +177,7 @@ export class AppComponent {
   async createItem(container: Container, item: ItemDefinition): Promise<void> {
     if (item.id) {
       const result = await this.getItemById(container, item.id);
-      if (result.length > 0) {
+      if (result) {
         return alert('Item with the same ID already exists.');
       }
     }
@@ -205,7 +212,7 @@ export class AppComponent {
     if (item.id) {
       const result = await this.getItemById(container, item.id);
 
-      if (result.length > 0) {
+      if (result) {
         const updatedItem = { ...result[0], ...item };
         await container.item(item.id).replace(updatedItem);
         return;
@@ -226,7 +233,7 @@ export class AppComponent {
   async deleteItem(container: Container, itemId: string): Promise<void> {
     const item = await this.getItemById(container, itemId);
 
-    if (item.length > 0) {
+    if (item) {
       if (confirm('確定刪除？')) {
         await container.item(itemId).delete();
         return alert('Delete Item');
@@ -236,5 +243,16 @@ export class AppComponent {
     }
 
     alert(`Item dosen't exist`);
+  }
+
+  /**
+   * 測試中
+   */
+  async subscribeToChanges(databaseId: string, containerId: string) {
+    const partitionKey = '/itemId';
+    const container = this.client.database(databaseId).container(containerId);
+    const iterator = container.items.changeFeed(partitionKey);
+    console.log('container', container);
+    console.log('iterator', iterator);
   }
 }
